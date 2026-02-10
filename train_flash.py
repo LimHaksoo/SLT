@@ -11,6 +11,22 @@ import torch
 # the first flag below was False when we tested this script but True makes A100 training a lot faster:
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
+torch.backends.cudnn.benchmark = True
+# Optional: prefer FlashAttention / mem-efficient SDPA when available (PyTorch 2.x).
+try:
+    torch.backends.cuda.enable_flash_sdp(True)
+    torch.backends.cuda.enable_mem_efficient_sdp(True)
+    # Disable math SDP to encourage fused kernels (will fall back automatically if unsupported):
+    torch.backends.cuda.enable_math_sdp(True)
+except Exception:
+    pass
+
+# Optional: new matmul precision API (keeps backward compatibility).
+try:
+    torch.set_float32_matmul_precision("high")
+except Exception:
+    pass
+
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
@@ -27,7 +43,7 @@ import argparse
 import logging
 import os
 
-from model_dittrm import DiT_models
+from model_dittrm_flash import DiT_models
 # from models import DiT_models
 
 from diffusion import create_diffusion
@@ -38,17 +54,29 @@ from diffusers.models import AutoencoderKL
 #                             Training Helper Functions                         #
 #################################################################################
 
+
+def unwrap_model(m):
+    """Return the underlying nn.Module, unwrapping DDP and torch.compile wrappers."""
+    if hasattr(m, "module"):
+        m = m.module
+    # torch.compile wraps modules in OptimizedModule with attribute _orig_mod
+    if hasattr(m, "_orig_mod"):
+        m = m._orig_mod
+    return m
+
 @torch.no_grad()
 def update_ema(ema_model, model, decay=0.9999):
     """
     Step the EMA model towards the current model.
     """
+    model = unwrap_model(model)
     ema_params = OrderedDict(ema_model.named_parameters())
     model_params = OrderedDict(model.named_parameters())
 
     for name, param in model_params.items():
         # TODO: Consider applying only to params that require_grad to avoid small numerical changes of pos_embed
-        ema_params[name].mul_(decay).add_(param.data, alpha=1 - decay)
+        if name in ema_params:
+            ema_params[name].mul_(decay).add_(param.data, alpha=1 - decay)
 
 
 def requires_grad(model, flag=True):
@@ -141,42 +169,113 @@ def main(args):
     # Create model:
     assert args.image_size % 8 == 0, "Image size must be divisible by 8 (for the VAE encoder)."
     latent_size = args.image_size // 8
+
     model = DiT_models[args.model](
         input_size=latent_size,
         num_classes=args.num_classes
-    )
+    ).to(device)
     # Note that parameter initialization is done within the DiT constructor
-    ema = deepcopy(model).to(device)  # Create an EMA of the model for use after training
+
+    # Create an EMA of the (uncompiled) model for evaluation/checkpointing:
+    ema = deepcopy(model).to(device)
+    requires_grad(ema, False)
+
+    # AMP config (FlashAttention kernels typically require fp16/bf16 to trigger):
+    amp_enabled = args.amp != "none"
+    if args.amp == "fp16":
+        amp_dtype = torch.float16
+    elif args.amp == "bf16":
+        amp_dtype = torch.bfloat16
+    else:
+        amp_dtype = None
+    scaler = torch.amp.GradScaler("cuda", enabled=(args.amp == "fp16"))
+
+    # Optional torch.compile (compile the training model, not EMA):
+    if args.compile:
+        try:
+            model = torch.compile(model, mode=args.compile_mode)
+        except TypeError:
+            # Older torch.compile signatures may not accept mode=...
+            model = torch.compile(model)
+
+    # start_step = 0
+    # if args.ckpt is not None:
+    #     # 1) CPU로 로드해서 OOM 방지 (PR에서도 이 부분이 문제라고 언급됨)
+    #     ckpt = torch.load(args.ckpt, map_location="cpu")  # :contentReference[oaicite:4]{index=4}
+
+    #     # 2) state_dict 복구 (키 이름은 ckpt.keys()로 확인해서 맞추세요)
+    #     model.load_state_dict(ckpt["model"])
+    #     ema.load_state_dict(ckpt["ema"])
+    #     optimizer.load_state_dict(ckpt["opt"])
+
+    #     # 3) optimizer state 텐서를 GPU로 옮기기 (이거 안 하면 느리거나 에러/메모리 이슈)
+    #     for state in optimizer.state.values():
+    #         for k, v in state.items():
+    #             if torch.is_tensor(v):
+    #                 state[k] = v.cuda()
+
+    #     # 4) step 복구 (checkpoint에 저장된 키 이름에 맞게)
+    #     start_step = ckpt.get("train_steps", ckpt.get("step", 0))
+    #     print(f"Resumed from {args.ckpt} at step={start_step}")
+    #     del ckpt
     
     start_step = 0
+    resumed = False
+    resume_opt_state = None
     if args.ckpt is not None:
-        # 1) CPU로 로드해서 OOM 방지 (PR에서도 이 부분이 문제라고 언급됨)
-        ckpt = torch.load(args.ckpt, map_location="cpu")  # :contentReference[oaicite:4]{index=4}
+        ckpt = torch.load(args.ckpt, map_location="cpu", weights_only=False)
 
-        # 2) state_dict 복구 (키 이름은 ckpt.keys()로 확인해서 맞추세요)
-        model.load_state_dict(ckpt["model"])
+        # Load weights into the underlying module (handles torch.compile wrappers).
+        unwrap_model(model).load_state_dict(ckpt["model"])
         ema.load_state_dict(ckpt["ema"])
-        optimizer.load_state_dict(ckpt["opt"])
+        resume_opt_state = ckpt.get("opt", None)
 
-        # 3) optimizer state 텐서를 GPU로 옮기기 (이거 안 하면 느리거나 에러/메모리 이슈)
-        for state in optimizer.state.values():
-            for k, v in state.items():
-                if torch.is_tensor(v):
-                    state[k] = v.cuda()
+        # Recover global step (older checkpoints may not store it; fall back to filename).
+        start_step = ckpt.get("train_steps", ckpt.get("step", None))
+        if start_step is None:
+            base = os.path.basename(args.ckpt)
+            stem = os.path.splitext(base)[0]
+            digits = "".join([ch for ch in stem if ch.isdigit()])
+            start_step = int(digits) if digits else 0
 
-        # 4) step 복구 (checkpoint에 저장된 키 이름에 맞게)
-        start_step = ckpt.get("train_steps", ckpt.get("step", 0))
-        print(f"Resumed from {args.ckpt} at step={start_step}")
+        resumed = True
+        if rank == 0:
+            logger.info(f"Resumed from {args.ckpt} at step={start_step}")
         del ckpt
-    
-    requires_grad(ema, False)
-    model = DDP(model.to(device), device_ids=[rank])
+
+    # Wrap with DDP:
+    model = DDP(
+        model,
+        device_ids=[device],
+        find_unused_parameters=args.find_unused_parameters,
+    )
+
     diffusion = create_diffusion(timestep_respacing="")  # default: 1000 steps, linear noise schedule
-    vae = AutoencoderKL.from_pretrained(f"stabilityai/sd-vae-ft-{args.vae}").to(device)
-    logger.info(f"DiT Parameters: {sum(p.numel() for p in model.parameters()):,}")
+
+    # VAE is frozen:
+    vae_dtype = torch.float16 if args.vae_dtype == "fp16" else torch.float32
+    vae = AutoencoderKL.from_pretrained(
+        f"stabilityai/sd-vae-ft-{args.vae}",
+        torch_dtype=vae_dtype,
+    ).to(device)
+    vae.eval().requires_grad_(False)
+    if amp_dtype is not None:
+        try:
+            vae.to(dtype=amp_dtype)
+        except Exception:
+            pass
+
+    logger.info(f"DiT Parameters: {sum(p.numel() for p in unwrap_model(model).parameters()):,}")
 
     # Setup optimizer (we used default Adam betas=(0.9, 0.999) and a constant learning rate of 1e-4 in our paper):
     opt = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=0)
+    if resume_opt_state is not None:
+        opt.load_state_dict(resume_opt_state)
+        # Move optimizer state tensors to the correct device.
+        for state in opt.state.values():
+            for k, v in state.items():
+                if torch.is_tensor(v):
+                    state[k] = v.to(device)
 
     # Setup data:
     transform = transforms.Compose([
@@ -203,36 +302,62 @@ def main(args):
         drop_last=True
     )
     logger.info(f"Dataset contains {len(dataset):,} images ({args.data_path})")
-
+    if not resumed:
+        update_ema(ema, model, decay=0)  # Ensure EMA is initialized with synced weights
     # Prepare models for training:
-    update_ema(ema, model.module, decay=0)  # Ensure EMA is initialized with synced weights
+    # update_ema(ema, model, decay=0)  # Ensure EMA is initialized with synced weights
+    
     model.train()  # important! This enables embedding dropout for classifier-free guidance
     ema.eval()  # EMA model should always be in eval mode
 
     # Variables for monitoring/logging purposes:
     train_steps = start_step
-    log_steps = start_step
+    log_steps = 0
     running_loss = 0
     start_time = time()
+    
+    steps_per_epoch = len(loader)
+    start_epoch = start_step // steps_per_epoch
+    skip_iters = start_step % steps_per_epoch
 
     logger.info(f"Training for {args.epochs} epochs...")
-    for epoch in range(args.epochs):
+    for epoch in range(start_epoch, args.epochs):
         sampler.set_epoch(epoch)
         logger.info(f"Beginning epoch {epoch}...")
-        for x, y in loader:
-            x = x.to(device)
-            y = y.to(device)
+        for it, (x, y) in enumerate(loader):
+            if epoch == start_epoch and it < skip_iters:
+                continue
+            # Move batch to GPU:
+            x = x.to(device, non_blocking=True)
+            y = y.to(device, non_blocking=True)
+
+            # Map input images to latent space + normalize latents (VAE is frozen):
             with torch.no_grad():
-                # Map input images to latent space + normalize latents:
-                x = vae.encode(x).latent_dist.sample().mul_(0.18215)
+                use_autocast = (args.vae_dtype == "fp16")
+                with torch.amp.autocast("cuda", enabled=use_autocast, dtype=torch.float16):
+                    posterior = vae.encode(x).latent_dist
+                    x_latent = posterior.sample()   # 기존과 동일(샘플링)
+                x_latent = x_latent.mul_(0.18215)
+            x = x_latent
+
             t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=device)
             model_kwargs = dict(y=y)
-            loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
-            loss = loss_dict["loss"].mean()
-            opt.zero_grad()
-            loss.backward()
-            opt.step()
-            update_ema(ema, model.module)
+
+            # DiT forward + diffusion loss under autocast:
+            with torch.autocast(device_type="cuda", dtype=amp_dtype, enabled=amp_enabled):
+                loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
+                loss = loss_dict["loss"].float().mean()
+
+            opt.zero_grad(set_to_none=True)
+            if scaler.is_enabled():
+                scaler.scale(loss).backward()
+                scaler.step(opt)
+                scaler.update()
+            else:
+                loss.backward()
+                opt.step()
+
+            update_ema(ema, model)
 
             # Log loss values:
             running_loss += loss.item()
@@ -257,7 +382,7 @@ def main(args):
             if train_steps % args.ckpt_every == 0 and train_steps > 0:
                 if rank == 0:
                     checkpoint = {
-                        "model": model.module.state_dict(),
+                        "model": unwrap_model(model).state_dict(),
                         "ema": ema.state_dict(),
                         "opt": opt.state_dict(),
                         "args": args
@@ -286,9 +411,25 @@ if __name__ == "__main__":
     parser.add_argument("--global-batch-size", type=int, default=256)
     parser.add_argument("--global-seed", type=int, default=0)
     parser.add_argument("--vae", type=str, choices=["ema", "mse"], default="ema")  # Choice doesn't affect training
+    # Speed knobs:
+    parser.add_argument("--amp", type=str, choices=["none", "fp16", "bf16"], default="bf16",
+                        help="Automatic mixed precision dtype. bf16 is recommended on Ampere+ GPUs.")
+    parser.add_argument("--compile", action="store_true",
+                        help="Enable torch.compile for the training model (first iteration will be slower).")
+    parser.add_argument("--compile-mode", type=str, default="max-autotune",
+                        help="torch.compile mode (e.g., default, reduce-overhead, max-autotune).")
+    parser.add_argument("--find-unused-parameters", action="store_true",
+                        help="DDP find_unused_parameters=True (useful for debugging).")
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--log-every", type=int, default=100)
-    parser.add_argument("--ckpt-every", type=int, default=50_000)
+    parser.add_argument("--ckpt-every", type=int, default=20_000)
     parser.add_argument("--ckpt", type=str, default=None, help="resume training from a saved checkpoint")
+    parser.add_argument(
+        "--vae-dtype",
+        type=str,
+        choices=["fp32", "fp16"],
+        default="fp16",
+        help="VAE encoder dtype when training from images. fp16 is faster; fp32 is more conservative.",
+    )
     args = parser.parse_args()
     main(args)
