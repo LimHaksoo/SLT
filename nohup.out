@@ -4143,3 +4143,7 @@ Using cache found in /home/haksoo/.cache/torch/hub/facebookresearch_dinov2_main
 [[34m2026-02-10 14:12:49[0m] (step=0168600) Loss: 0.2639 (diff=0.1511, repa=0.2256, λ=0.5) Steps/Sec: 2.65
 [[34m2026-02-10 14:13:27[0m] (step=0168700) Loss: 0.2706 (diff=0.1580, repa=0.2254, λ=0.5) Steps/Sec: 2.65
 [[34m2026-02-10 14:14:05[0m] (step=0168800) Loss: 0.2716 (diff=0.1589, repa=0.2255, λ=0.5) Steps/Sec: 2.66
+[[34m2026-02-10 14:14:42[0m] (step=0168900) Loss: 0.2673 (diff=0.1544, repa=0.2259, λ=0.5) Steps/Sec: 2.66
+[[34m2026-02-10 14:15:20[0m] (step=0169000) Loss: 0.2682 (diff=0.1557, repa=0.2251, λ=0.5) Steps/Sec: 2.65
+[[34m2026-02-10 14:15:58[0m] (step=0169100) Loss: 0.2677 (diff=0.1550, repa=0.2255, λ=0.5) Steps/Sec: 2.66
+[[34m2026-02-10 14:16:36[0m] (step=0169200) Loss: 0.2710 (diff=0.1586, repa=0.2249, λ=0.5) Steps/Sec: 2.65
