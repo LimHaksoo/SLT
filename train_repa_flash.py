@@ -63,7 +63,7 @@ except Exception:
 try:
     from model_dittrm_flash import DiT_models  # FlashAttention-optimized blocks (if available)
 except Exception:
-    from model_dittrm import DiT_models
+    from model_dittrm_flash import DiT_models
 # from models import DiT_models
 
 from diffusion import create_diffusion
@@ -421,6 +421,7 @@ def main(args):
         H_cycles=args.H_cycles,
         L_cycles=args.L_cycles,
         adaptive_halt=False,  # don't early-stop during training
+        self_refine_feedback="xprev",
     )
 
     # Optional REPA teacher + projector:

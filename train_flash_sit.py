@@ -7,17 +7,10 @@
 """
 A minimal training script for DiT using PyTorch DDP.
 """
-import os
-os.environ["TORCH_ALLOW_CUBLAS_LT"] = "0"
-os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 import torch
-try:
-    torch.backends.cuda.preferred_blas_library("cublas")
-except Exception:
-    pass
-# # the first flag below was False when we tested this script but True makes A100 training a lot faster:
-# torch.backends.cuda.matmul.allow_tf32 = True
-# torch.backends.cudnn.allow_tf32 = True
+# the first flag below was False when we tested this script but True makes A100 training a lot faster:
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
 # Optional: prefer FlashAttention / mem-efficient SDPA when available (PyTorch 2.x).
 try:
     torch.backends.cuda.enable_flash_sdp(True)
@@ -27,11 +20,11 @@ try:
 except Exception:
     pass
 
-# # Optional: new matmul precision API (keeps backward compatibility).
-# try:
-#     torch.set_float32_matmul_precision("high")
-# except Exception:
-#     pass
+# Optional: new matmul precision API (keeps backward compatibility).
+try:
+    torch.set_float32_matmul_precision("high")
+except Exception:
+    pass
 
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -52,7 +45,7 @@ import os
 from model_dittrm_flash import DiT_models
 # from models import DiT_models
 
-from diffusion import create_diffusion
+from transport import create_transport
 from diffusers.models import AutoencoderKL
 
 
@@ -60,159 +53,7 @@ from diffusers.models import AutoencoderKL
 #                             Training Helper Functions                         #
 #################################################################################
 
-import torch.nn as nn
-import torch.nn.functional as F
 
-
-class ConvProjAttnProcessor2_0:
-    """
-    cuBLAS/cuBLASLt가 불안정한 환경(SM75 등)에서 VAE attention의 Q/K/V/to_out 선형프로젝션이
-    cublasLtMatmul/cublas*Batched GEMM 경로로 들어가며 크래시가 나는 경우가 있습니다.
-
-    이 processor는 Q/K/V/to_out[0] 선형프로젝션을 (B, S, C) -> (B, C, S)로 전치한 뒤
-    1x1 Conv1d(F.conv1d)로 계산해 (대부분 cuDNN conv 경로)로 우회합니다.
-    """
-    def __call__(self, attn, hidden_states, encoder_hidden_states=None, attention_mask=None, temb=None, **kwargs):
-        residual = hidden_states
-        input_ndim = hidden_states.ndim
-
-        # (B, C, H, W) -> (B, S, C)
-        if input_ndim == 4:
-            b, c, h, w = hidden_states.shape
-            hidden_states = hidden_states.view(b, c, h * w).transpose(1, 2).contiguous()
-        else:
-            b, s, c = hidden_states.shape
-            h = w = None
-            hidden_states = hidden_states.contiguous()
-
-        # Optional norms (match diffusers processors)
-        if getattr(attn, "spatial_norm", None) is not None:
-            hidden_states = attn.spatial_norm(hidden_states, temb)
-        if getattr(attn, "group_norm", None) is not None:
-            hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2).contiguous()
-
-        if encoder_hidden_states is None:
-            encoder_hidden_states = hidden_states
-        elif getattr(attn, "norm_cross", False):
-            encoder_hidden_states = attn.norm_encoder_hidden_states(encoder_hidden_states)
-
-        # helper: linear projection via 1x1 conv1d (avoid GEMM)
-        def proj_conv1d(x_bsc, linear):
-            # x_bsc: (B, S, C) float32
-            x = x_bsc.transpose(1, 2).contiguous()               # (B, C, S)
-            w = linear.weight.unsqueeze(-1).contiguous()         # (O, C, 1)
-            b = linear.bias.contiguous() if linear.bias is not None else None
-            y = F.conv1d(x, w, b)                                # (B, O, S)
-            return y.transpose(1, 2).contiguous()                # (B, S, O)
-
-        # Q/K/V
-        q = proj_conv1d(hidden_states, attn.to_q)
-        k = proj_conv1d(encoder_hidden_states, attn.to_k)
-        v = proj_conv1d(encoder_hidden_states, attn.to_v)
-
-        inner_dim = q.shape[-1]
-        head_dim = inner_dim // attn.heads
-
-        # (B, S, O) -> (B, H, S, D)
-        q = q.view(b, -1, attn.heads, head_dim).transpose(1, 2).contiguous()
-        k = k.view(b, -1, attn.heads, head_dim).transpose(1, 2).contiguous()
-        v = v.view(b, -1, attn.heads, head_dim).transpose(1, 2).contiguous()
-
-        if attention_mask is not None:
-            attention_mask = attn.prepare_attention_mask(attention_mask, k.shape[-2], b)
-            attention_mask = attention_mask.view(b, attn.heads, -1, attention_mask.shape[-1])
-
-        hidden_states = F.scaled_dot_product_attention(
-            q, k, v, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
-        )
-        hidden_states = hidden_states.transpose(1, 2).reshape(b, -1, attn.heads * head_dim).contiguous()
-
-        # out proj via conv1d too
-        hidden_states = proj_conv1d(hidden_states, attn.to_out[0])
-        hidden_states = attn.to_out[1](hidden_states)
-
-        # back to (B, C, H, W) if needed
-        if input_ndim == 4:
-            hidden_states = hidden_states.transpose(1, 2).reshape(b, c, h, w).contiguous()
-
-        if getattr(attn, "residual_connection", False):
-            hidden_states = hidden_states + residual
-        hidden_states = hidden_states / getattr(attn, "rescale_output_factor", 1.0)
-        return hidden_states
-
-
-class FlatProjAttnProcessor2_0:
-    """
-    Attention processor for Diffusers Attention blocks that forces 2D GEMMs for
-    Q/K/V and output projections by flattening (B, S, C) -> (B*S, C).
-    This avoids cuBLAS strided-batched GEMM paths that can be unstable on some
-    older GPUs / CUDA builds during VAE encoding.
-    """
-    def __call__(self, attn, hidden_states, encoder_hidden_states=None, attention_mask=None, temb=None, **kwargs):
-        residual = hidden_states
-        input_ndim = hidden_states.ndim
-
-        # (B, C, H, W) -> (B, S, C)
-        if input_ndim == 4:
-            b, c, h, w = hidden_states.shape
-            hidden_states = hidden_states.view(b, c, h * w).transpose(1, 2).contiguous()
-        else:
-            b, s, c = hidden_states.shape
-            h = w = None
-            hidden_states = hidden_states.contiguous()
-
-        # optional norms (as in diffusers processors)
-        if getattr(attn, "spatial_norm", None) is not None:
-            hidden_states = attn.spatial_norm(hidden_states, temb)
-        if getattr(attn, "group_norm", None) is not None:
-            hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2).contiguous()
-
-        if encoder_hidden_states is None:
-            encoder_hidden_states = hidden_states
-        else:
-            encoder_hidden_states = encoder_hidden_states.contiguous()
-            if getattr(attn, "norm_cross", False):
-                encoder_hidden_states = attn.norm_encoder_hidden_states(encoder_hidden_states)
-
-        # ---- Q/K/V projections: force 2D GEMM ----
-        bq, sq, cq = hidden_states.shape
-        hs2 = hidden_states.reshape(bq * sq, cq).contiguous()
-        q = attn.to_q(hs2).view(bq, sq, -1)
-
-        bk, sk, ck = encoder_hidden_states.shape
-        ehs2 = encoder_hidden_states.reshape(bk * sk, ck).contiguous()
-        k = attn.to_k(ehs2).view(bk, sk, -1)
-        v = attn.to_v(ehs2).view(bk, sk, -1)
-
-        inner_dim = k.shape[-1]
-        head_dim = inner_dim // attn.heads
-
-        q = q.view(bq, sq, attn.heads, head_dim).transpose(1, 2)  # (B, H, S, D)
-        k = k.view(bk, sk, attn.heads, head_dim).transpose(1, 2)
-        v = v.view(bk, sk, attn.heads, head_dim).transpose(1, 2)
-
-        if attention_mask is not None:
-            attention_mask = attn.prepare_attention_mask(attention_mask, sk, bq)
-            attention_mask = attention_mask.view(bq, attn.heads, -1, attention_mask.shape[-1])
-
-        hidden_states = F.scaled_dot_product_attention(
-            q, k, v, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
-        )
-        hidden_states = hidden_states.transpose(1, 2).reshape(bq, sq, attn.heads * head_dim).contiguous()
-
-        # ---- output projection: force 2D GEMM ----
-        out2 = hidden_states.reshape(bq * sq, -1).contiguous()
-        hidden_states = attn.to_out[0](out2).view(bq, sq, -1)
-        hidden_states = attn.to_out[1](hidden_states)
-
-        # (B, S, C) -> (B, C, H, W)
-        if input_ndim == 4:
-            hidden_states = hidden_states.transpose(1, 2).reshape(b, c, h, w).contiguous()
-
-        if getattr(attn, "residual_connection", False):
-            hidden_states = hidden_states + residual
-        hidden_states = hidden_states / getattr(attn, "rescale_output_factor", 1.0)
-        return hidden_states
 def unwrap_model(m):
     """Return the underlying nn.Module, unwrapping DDP and torch.compile wrappers."""
     if hasattr(m, "module"):
@@ -290,6 +131,7 @@ def center_crop_arr(pil_image, image_size):
     crop_x = (arr.shape[1] - image_size) // 2
     return Image.fromarray(arr[crop_y: crop_y + image_size, crop_x: crop_x + image_size])
 
+
 #################################################################################
 #                                  Training Loop                                #
 #################################################################################
@@ -345,7 +187,7 @@ def main(args):
         amp_dtype = torch.bfloat16
     else:
         amp_dtype = None
-    scaler = torch.amp.GradScaler("cuda", enabled=(args.amp == "fp16"))
+    scaler = torch.cuda.amp.GradScaler(enabled=(args.amp == "fp16"))
 
     # Optional torch.compile (compile the training model, not EMA):
     if args.compile:
@@ -380,7 +222,7 @@ def main(args):
     resumed = False
     resume_opt_state = None
     if args.ckpt is not None:
-        ckpt = torch.load(args.ckpt, map_location="cpu", weights_only=False)
+        ckpt = torch.load(args.ckpt, map_location="cpu")
 
         # Load weights into the underlying module (handles torch.compile wrappers).
         unwrap_model(model).load_state_dict(ckpt["model"])
@@ -407,20 +249,25 @@ def main(args):
         find_unused_parameters=args.find_unused_parameters,
     )
 
-    diffusion = create_diffusion(timestep_respacing="")  # default: 1000 steps, linear noise schedule
+    transport = create_transport(
+        path_type=args.path_type,
+        prediction=args.prediction,
+        loss_weight=args.loss_weight,
+        train_eps=args.train_eps,
+        sample_eps=args.sample_eps,
+    )
+    if rank == 0:
+        logger.info(f"Transport: path_type={args.path_type}, prediction={args.prediction}, loss_weight={args.loss_weight}, train_eps={transport.train_eps}, sample_eps={transport.sample_eps}")
 
     # VAE is frozen:
     vae = AutoencoderKL.from_pretrained(f"stabilityai/sd-vae-ft-{args.vae}").to(device)
-    vae.eval().requires_grad_(False)
-    vae.to(device, dtype=torch.float32)
+    vae.eval()
     requires_grad(vae, False)
-    vae.enable_slicing()
-    vae.set_attn_processor(ConvProjAttnProcessor2_0())
-    # if amp_dtype is not None:
-    #     try:
-    #         vae.to(dtype=amp_dtype)
-    #     except Exception:
-    #         pass
+    if amp_dtype is not None:
+        try:
+            vae.to(dtype=amp_dtype)
+        except Exception:
+            pass
 
     logger.info(f"DiT Parameters: {sum(p.numel() for p in unwrap_model(model).parameters()):,}")
 
@@ -482,28 +329,22 @@ def main(args):
         sampler.set_epoch(epoch)
         logger.info(f"Beginning epoch {epoch}...")
         for it, (x, y) in enumerate(loader):
-            # if epoch == start_epoch and it < skip_iters:
-            #     continue
+            if epoch == start_epoch and it < skip_iters:
+                continue
             # Move batch to GPU:
             x = x.to(device, non_blocking=True)
             y = y.to(device, non_blocking=True)
 
             # Map input images to latent space + normalize latents (VAE is frozen):
             with torch.no_grad():
-                x_fp32 = x.float()
-                with torch.autocast(device_type="cuda", enabled=False):
-                    x_latent = vae.encode(x_fp32).latent_dist.sample()
-                    x_latent = x_latent.mul_(0.18215)
+                with torch.autocast(device_type="cuda", dtype=amp_dtype, enabled=amp_enabled):
+                    x = vae.encode(x).latent_dist.sample().mul_(0.18215)
 
-            # DiT는 AMP dtype으로 계속 (fp16 권장)
-            x = x_latent.to(dtype=amp_dtype) if amp_dtype is not None else x_latent
-
-            t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=device)
             model_kwargs = dict(y=y)
 
             # DiT forward + diffusion loss under autocast:
             with torch.autocast(device_type="cuda", dtype=amp_dtype, enabled=amp_enabled):
-                loss_dict = diffusion.training_losses(model, x, t, model_kwargs)
+                loss_dict = transport.training_losses(model, x, model_kwargs)
                 loss = loss_dict["loss"].float().mean()
 
             opt.zero_grad(set_to_none=True)
@@ -582,5 +423,16 @@ if __name__ == "__main__":
     parser.add_argument("--log-every", type=int, default=100)
     parser.add_argument("--ckpt-every", type=int, default=20_000)
     parser.add_argument("--ckpt", type=str, default=None, help="resume training from a saved checkpoint")
+    # SiT-style transport / interpolant settings:
+    parser.add_argument("--path-type", type=str, default="Linear", choices=["Linear", "GVP", "VP"],
+                        help="Interpolant / path type (SiT).")
+    parser.add_argument("--prediction", type=str, default="velocity", choices=["velocity", "noise", "score"],
+                        help="What the model predicts under the transport objective (SiT).")
+    parser.add_argument("--loss-weight", type=str, default=None, choices=[None, "velocity", "likelihood"],
+                        help="Optional loss reweighting (mainly for noise/score prediction).")
+    parser.add_argument("--train-eps", type=float, default=None,
+                        help="Epsilon to avoid singular endpoints during training (default depends on path/prediction).")
+    parser.add_argument("--sample-eps", type=float, default=None,
+                        help="Epsilon to avoid singular endpoints during sampling (default depends on path/prediction).")
     args = parser.parse_args()
     main(args)
