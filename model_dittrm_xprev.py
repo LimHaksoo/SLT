@@ -439,76 +439,76 @@ class DiTTRM(nn.Module):
             return t_emb + y_emb
         return t_emb
 
-# -----------------------------
-# Diffusion schedule helpers (for eps <-> x0/xprev conversions in self-refine)
-# -----------------------------
-def _init_default_diffusion_schedule(self, *, num_timesteps: int = 1000, beta_start: float = 1e-4, beta_end: float = 2e-2) -> None:
-    """Initialize a default 1000-step linear beta schedule (guided-diffusion / DiT default).
+    # -----------------------------
+    # Diffusion schedule helpers (for eps <-> x0/xprev conversions in self-refine)
+    # -----------------------------
+    def _init_default_diffusion_schedule(self, *, num_timesteps: int = 1000, beta_start: float = 1e-4, beta_end: float = 2e-2) -> None:
+        """Initialize a default 1000-step linear beta schedule (guided-diffusion / DiT default).
 
-    We store sqrt(alpha_bar_t) and sqrt(1-alpha_bar_t) as buffers for fast extraction.
-    If you use a *different* diffusion schedule, call `set_diffusion_schedule(...)` once after
-    you create your diffusion object to override these buffers.
-    """
-    betas = torch.linspace(beta_start, beta_end, int(num_timesteps), dtype=torch.float64)
-    alphas = 1.0 - betas
-    alphas_cumprod = torch.cumprod(alphas, dim=0)
-    sqrt_ab = torch.sqrt(alphas_cumprod).float()
-    sqrt_omab = torch.sqrt(1.0 - alphas_cumprod).float()
+        We store sqrt(alpha_bar_t) and sqrt(1-alpha_bar_t) as buffers for fast extraction.
+        If you use a *different* diffusion schedule, call `set_diffusion_schedule(...)` once after
+        you create your diffusion object to override these buffers.
+        """
+        betas = torch.linspace(beta_start, beta_end, int(num_timesteps), dtype=torch.float64)
+        alphas = 1.0 - betas
+        alphas_cumprod = torch.cumprod(alphas, dim=0)
+        sqrt_ab = torch.sqrt(alphas_cumprod).float()
+        sqrt_omab = torch.sqrt(1.0 - alphas_cumprod).float()
 
-    # Register buffers only once; afterwards copy_ to keep state_dict stable.
-    if not hasattr(self, "sqrt_alphas_cumprod"):
-        self.register_buffer("sqrt_alphas_cumprod", sqrt_ab, persistent=False)
-        self.register_buffer("sqrt_one_minus_alphas_cumprod", sqrt_omab, persistent=False)
-    else:
+        # Register buffers only once; afterwards copy_ to keep state_dict stable.
+        if not hasattr(self, "sqrt_alphas_cumprod"):
+            self.register_buffer("sqrt_alphas_cumprod", sqrt_ab, persistent=False)
+            self.register_buffer("sqrt_one_minus_alphas_cumprod", sqrt_omab, persistent=False)
+        else:
+            if self.sqrt_alphas_cumprod.numel() != sqrt_ab.numel():
+                raise ValueError("Diffusion schedule length mismatch; recreate the model for a different num_timesteps.")
+            self.sqrt_alphas_cumprod.data.copy_(sqrt_ab)
+            self.sqrt_one_minus_alphas_cumprod.data.copy_(sqrt_omab)
+
+    @torch.no_grad()
+    def set_diffusion_schedule(self, *, betas: torch.Tensor) -> None:
+        """Override the diffusion schedule buffers with an explicit beta tensor.
+
+        Args:
+        betas: shape (T,), dtype float32/float64, on CPU or GPU.
+        """
+        betas = betas.detach().float().cpu()
+        alphas = 1.0 - betas
+        alphas_cumprod = torch.cumprod(alphas, dim=0)
+        sqrt_ab = torch.sqrt(alphas_cumprod)
+        sqrt_omab = torch.sqrt(1.0 - alphas_cumprod)
+
         if self.sqrt_alphas_cumprod.numel() != sqrt_ab.numel():
-            raise ValueError("Diffusion schedule length mismatch; recreate the model for a different num_timesteps.")
-        self.sqrt_alphas_cumprod.data.copy_(sqrt_ab)
-        self.sqrt_one_minus_alphas_cumprod.data.copy_(sqrt_omab)
+            raise ValueError(
+                f"Schedule length mismatch: model has T={self.sqrt_alphas_cumprod.numel()}, provided T={sqrt_ab.numel()}. "
+                "Recreate the model if you changed num_timesteps."
+            )
+        self.sqrt_alphas_cumprod.data.copy_(sqrt_ab.to(self.sqrt_alphas_cumprod.dtype))
+        self.sqrt_one_minus_alphas_cumprod.data.copy_(sqrt_omab.to(self.sqrt_one_minus_alphas_cumprod.dtype))
 
-@torch.no_grad()
-def set_diffusion_schedule(self, *, betas: torch.Tensor) -> None:
-    """Override the diffusion schedule buffers with an explicit beta tensor.
+    def _extract(self, arr_1d: torch.Tensor, t: torch.Tensor, x_like: torch.Tensor) -> torch.Tensor:
+        """Extract values from a 1-D schedule tensor at timesteps t and reshape for broadcasting."""
+        if t.dtype != torch.long:
+            t = t.long()
+        # arr_1d: (T,)
+        out = arr_1d.to(device=x_like.device, dtype=x_like.dtype).gather(0, t.clamp(0, arr_1d.shape[0] - 1))
+        # reshape to (B, 1, 1, 1) for image-like x
+        while out.ndim < x_like.ndim:
+            out = out.view(-1, *([1] * (x_like.ndim - 1)))
+        return out
 
-    Args:
-      betas: shape (T,), dtype float32/float64, on CPU or GPU.
-    """
-    betas = betas.detach().float().cpu()
-    alphas = 1.0 - betas
-    alphas_cumprod = torch.cumprod(alphas, dim=0)
-    sqrt_ab = torch.sqrt(alphas_cumprod)
-    sqrt_omab = torch.sqrt(1.0 - alphas_cumprod)
+    def _predict_x0_from_eps(self, x_t: torch.Tensor, t: torch.Tensor, eps: torch.Tensor) -> torch.Tensor:
+        a_t = self._extract(self.sqrt_alphas_cumprod, t, x_t)
+        b_t = self._extract(self.sqrt_one_minus_alphas_cumprod, t, x_t)
+        return (x_t - b_t * eps) / (a_t + 1e-8)
 
-    if self.sqrt_alphas_cumprod.numel() != sqrt_ab.numel():
-        raise ValueError(
-            f"Schedule length mismatch: model has T={self.sqrt_alphas_cumprod.numel()}, provided T={sqrt_ab.numel()}. "
-            "Recreate the model if you changed num_timesteps."
-        )
-    self.sqrt_alphas_cumprod.data.copy_(sqrt_ab.to(self.sqrt_alphas_cumprod.dtype))
-    self.sqrt_one_minus_alphas_cumprod.data.copy_(sqrt_omab.to(self.sqrt_one_minus_alphas_cumprod.dtype))
-
-def _extract(self, arr_1d: torch.Tensor, t: torch.Tensor, x_like: torch.Tensor) -> torch.Tensor:
-    """Extract values from a 1-D schedule tensor at timesteps t and reshape for broadcasting."""
-    if t.dtype != torch.long:
-        t = t.long()
-    # arr_1d: (T,)
-    out = arr_1d.to(device=x_like.device, dtype=x_like.dtype).gather(0, t.clamp(0, arr_1d.shape[0] - 1))
-    # reshape to (B, 1, 1, 1) for image-like x
-    while out.ndim < x_like.ndim:
-        out = out.view(-1, *([1] * (x_like.ndim - 1)))
-    return out
-
-def _predict_x0_from_eps(self, x_t: torch.Tensor, t: torch.Tensor, eps: torch.Tensor) -> torch.Tensor:
-    a_t = self._extract(self.sqrt_alphas_cumprod, t, x_t)
-    b_t = self._extract(self.sqrt_one_minus_alphas_cumprod, t, x_t)
-    return (x_t - b_t * eps) / (a_t + 1e-8)
-
-def _predict_xprev_from_eps(self, x_t: torch.Tensor, t: torch.Tensor, eps: torch.Tensor) -> torch.Tensor:
-    # Deterministic DDIM-style "one step less noisy" latent using the *same* eps.
-    t_prev = (t.long() - 1).clamp(min=0)
-    a_prev = self._extract(self.sqrt_alphas_cumprod, t_prev, x_t)
-    b_prev = self._extract(self.sqrt_one_minus_alphas_cumprod, t_prev, x_t)
-    x0_hat = self._predict_x0_from_eps(x_t, t, eps)
-    return a_prev * x0_hat + b_prev * eps
+    def _predict_xprev_from_eps(self, x_t: torch.Tensor, t: torch.Tensor, eps: torch.Tensor) -> torch.Tensor:
+        # Deterministic DDIM-style "one step less noisy" latent using the *same* eps.
+        t_prev = (t.long() - 1).clamp(min=0)
+        a_prev = self._extract(self.sqrt_alphas_cumprod, t_prev, x_t)
+        b_prev = self._extract(self.sqrt_one_minus_alphas_cumprod, t_prev, x_t)
+        x0_hat = self._predict_x0_from_eps(x_t, t, eps)
+        return a_prev * x0_hat + b_prev * eps
 
 
     # -----------------------------

@@ -285,9 +285,10 @@ def attach_repa_projector(student: torch.nn.Module, teacher_dim: int, *, mlp: bo
 
     if mlp:
         proj = torch.nn.Sequential(
-            torch.nn.LayerNorm(d_student),
             torch.nn.Linear(d_student, teacher_dim),
-            torch.nn.GELU(),
+            torch.nn.SiLU(),
+            torch.nn.Linear(teacher_dim, teacher_dim),
+            torch.nn.SiLU(),
             torch.nn.Linear(teacher_dim, teacher_dim),
         )
     else:

@@ -8,7 +8,7 @@ GPU_ID=5
 BASE_DIR="/data4/haksoo/trm_repa/008-DiT-XL-2/checkpoints"
 
 # 순회할 체크포인트 번호들 (공백으로 구분)
-CKPT_STEPS=("0460000")
+CKPT_STEPS=("0480000")
 
 # 2. 실행 로직을 함수로 정의
 # 인자: $1=체크포인트 경로, $2=출력 폴더 접미사, $3=추가 인자

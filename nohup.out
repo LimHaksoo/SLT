@@ -8506,3 +8506,142 @@ Using cache found in /home/haksoo/.cache/torch/hub/facebookresearch_dinov2_main
 [[34m2026-02-12 15:21:39[0m] (step=0480500) Loss: 0.1536 (diff=0.1536, repa=0.0000, λ=0) Steps/Sec: 2.79
 [[34m2026-02-12 15:22:14[0m] (step=0480600) Loss: 0.1567 (diff=0.1567, repa=0.0000, λ=0) Steps/Sec: 2.85
 [[34m2026-02-12 15:22:50[0m] (step=0480700) Loss: 0.1527 (diff=0.1527, repa=0.0000, λ=0) Steps/Sec: 2.84
+[[34m2026-02-12 15:23:25[0m] (step=0480800) Loss: 0.1547 (diff=0.1547, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:24:00[0m] (step=0480900) Loss: 0.1540 (diff=0.1540, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:24:35[0m] (step=0481000) Loss: 0.1527 (diff=0.1527, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:25:10[0m] (step=0481100) Loss: 0.1510 (diff=0.1510, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:25:45[0m] (step=0481200) Loss: 0.1592 (diff=0.1592, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:26:20[0m] (step=0481300) Loss: 0.1540 (diff=0.1540, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:26:55[0m] (step=0481400) Loss: 0.1532 (diff=0.1532, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:27:30[0m] (step=0481500) Loss: 0.1551 (diff=0.1551, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:28:05[0m] (step=0481600) Loss: 0.1458 (diff=0.1458, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:28:40[0m] (step=0481700) Loss: 0.1499 (diff=0.1499, repa=0.0000, λ=0) Steps/Sec: 2.84
+[[34m2026-02-12 15:29:16[0m] (step=0481800) Loss: 0.1531 (diff=0.1531, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:29:51[0m] (step=0481900) Loss: 0.1501 (diff=0.1501, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:30:26[0m] (step=0482000) Loss: 0.1533 (diff=0.1533, repa=0.0000, λ=0) Steps/Sec: 2.84
+[[34m2026-02-12 15:31:01[0m] (step=0482100) Loss: 0.1463 (diff=0.1463, repa=0.0000, λ=0) Steps/Sec: 2.84
+[[34m2026-02-12 15:31:36[0m] (step=0482200) Loss: 0.1453 (diff=0.1453, repa=0.0000, λ=0) Steps/Sec: 2.84
+[[34m2026-02-12 15:32:11[0m] (step=0482300) Loss: 0.1549 (diff=0.1549, repa=0.0000, λ=0) Steps/Sec: 2.84
+[[34m2026-02-12 15:32:47[0m] (step=0482400) Loss: 0.1540 (diff=0.1540, repa=0.0000, λ=0) Steps/Sec: 2.84
+[[34m2026-02-12 15:33:22[0m] (step=0482500) Loss: 0.1514 (diff=0.1514, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:33:57[0m] (step=0482600) Loss: 0.1534 (diff=0.1534, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:34:32[0m] (step=0482700) Loss: 0.1532 (diff=0.1532, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:35:07[0m] (step=0482800) Loss: 0.1546 (diff=0.1546, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:35:42[0m] (step=0482900) Loss: 0.1535 (diff=0.1535, repa=0.0000, λ=0) Steps/Sec: 2.84
+[[34m2026-02-12 15:36:17[0m] (step=0483000) Loss: 0.1525 (diff=0.1525, repa=0.0000, λ=0) Steps/Sec: 2.84
+[[34m2026-02-12 15:36:52[0m] (step=0483100) Loss: 0.1467 (diff=0.1467, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:37:28[0m] (step=0483200) Loss: 0.1544 (diff=0.1544, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:38:03[0m] (step=0483300) Loss: 0.1499 (diff=0.1499, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:38:38[0m] (step=0483400) Loss: 0.1559 (diff=0.1559, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:39:13[0m] (step=0483500) Loss: 0.1472 (diff=0.1472, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:39:48[0m] (step=0483600) Loss: 0.1527 (diff=0.1527, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:40:23[0m] (step=0483700) Loss: 0.1508 (diff=0.1508, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:40:58[0m] (step=0483800) Loss: 0.1536 (diff=0.1536, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:41:33[0m] (step=0483900) Loss: 0.1533 (diff=0.1533, repa=0.0000, λ=0) Steps/Sec: 2.85
+[[34m2026-02-12 15:42:09[0m] (step=0484000) Loss: 0.1507 (diff=0.1507, repa=0.0000, λ=0) Steps/Sec: 2.84
+[[34m2026-02-12 15:42:44[0m] (step=0484100) Loss: 0.1468 (diff=0.1468, repa=0.0000, λ=0) Steps/Sec: 2.84
+[[34m2026-02-12 15:43:19[0m] (step=0484200) Loss: 0.1516 (diff=0.1516, repa=0.0000, λ=0) Steps/Sec: 2.84
+[[34m2026-02-12 15:43:54[0m] (step=0484300) Loss: 0.1526 (diff=0.1526, repa=0.0000, λ=0) Steps/Sec: 2.84
+[[34m2026-02-12 15:44:29[0m] (step=0484400) Loss: 0.1531 (diff=0.1531, repa=0.0000, λ=0) Steps/Sec: 2.84
+[[34m2026-02-12 15:45:05[0m] (step=0484500) Loss: 0.1577 (diff=0.1577, repa=0.0000, λ=0) Steps/Sec: 2.84
+[[34m2026-02-12 15:45:40[0m] (step=0484600) Loss: 0.1560 (diff=0.1560, repa=0.0000, λ=0) Steps/Sec: 2.84
+W0212 15:45:42.494000 1056344 site-packages/torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 1056437 closing signal SIGTERM
+W0212 15:45:42.497000 1056344 site-packages/torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 1056438 closing signal SIGTERM
+W0212 15:45:42.499000 1056344 site-packages/torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 1056439 closing signal SIGTERM
+E0212 15:45:42.502000 1056344 site-packages/torch/distributed/elastic/multiprocessing/api.py:984] failed (exitcode: -9) local_rank: 0 (pid: 1056436) of binary: /home/haksoo/anaconda3/envs/DiT_cu128/bin/python
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/haksoo/anaconda3/envs/DiT_cu128/lib/python3.12/site-packages/torch/distributed/run.py", line 995, in <module>
+    main()
+  File "/home/haksoo/anaconda3/envs/DiT_cu128/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 362, in wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/haksoo/anaconda3/envs/DiT_cu128/lib/python3.12/site-packages/torch/distributed/run.py", line 991, in main
+    run(args)
+  File "/home/haksoo/anaconda3/envs/DiT_cu128/lib/python3.12/site-packages/torch/distributed/run.py", line 982, in run
+    elastic_launch(
+  File "/home/haksoo/anaconda3/envs/DiT_cu128/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 170, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/haksoo/anaconda3/envs/DiT_cu128/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 317, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+=========================================================
+train_repa_flash.py FAILED
+---------------------------------------------------------
+Failures:
+[1]:
+  time      : 2026-02-12_15:45:42
+  host      : Hinton
+  rank      : 1 (local_rank: 1)
+  exitcode  : -15 (pid: 1056437)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 1056437
+[2]:
+  time      : 2026-02-12_15:45:42
+  host      : Hinton
+  rank      : 2 (local_rank: 2)
+  exitcode  : -15 (pid: 1056438)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 1056438
+[3]:
+  time      : 2026-02-12_15:45:42
+  host      : Hinton
+  rank      : 3 (local_rank: 3)
+  exitcode  : -15 (pid: 1056439)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 1056439
+---------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-02-12_15:45:42
+  host      : Hinton
+  rank      : 0 (local_rank: 0)
+  exitcode  : -9 (pid: 1056436)
+  error_file: <N/A>
+  traceback : Signal 9 (SIGKILL) received by PID 1056436
+=========================================================
+
+*****************************************
+Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+*****************************************
+Starting rank=3, seed=3, world_size=4.
+Starting rank=0, seed=0, world_size=4.
+[[34m2026-02-12 15:50:43[0m] Experiment directory created at /data4/haksoo/trm_repa_sit/000-DiT-XL-2
+Starting rank=1, seed=1, world_size=4.
+Starting rank=2, seed=2, world_size=4.
+[[34m2026-02-12 15:50:43[0m] Loading REPA teacher via torch.hub: facebookresearch/dinov2::dinov2_vitb14
+Using cache found in /home/haksoo/.cache/torch/hub/facebookresearch_dinov2_main
+Using cache found in /home/haksoo/.cache/torch/hub/facebookresearch_dinov2_main
+Using cache found in /home/haksoo/.cache/torch/hub/facebookresearch_dinov2_main
+Using cache found in /home/haksoo/.cache/torch/hub/facebookresearch_dinov2_main
+/home/haksoo/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/swiglu_ffn.py:43: UserWarning: xFormers is available (SwiGLU)
+  warnings.warn("xFormers is available (SwiGLU)")
+/home/haksoo/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/attention.py:27: UserWarning: xFormers is available (Attention)
+  warnings.warn("xFormers is available (Attention)")
+/home/haksoo/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/swiglu_ffn.py:43: UserWarning: xFormers is available (SwiGLU)
+  warnings.warn("xFormers is available (SwiGLU)")
+/home/haksoo/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/block.py:33: UserWarning: xFormers is available (Block)
+  warnings.warn("xFormers is available (Block)")
+/home/haksoo/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/attention.py:27: UserWarning: xFormers is available (Attention)
+  warnings.warn("xFormers is available (Attention)")
+/home/haksoo/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/swiglu_ffn.py:43: UserWarning: xFormers is available (SwiGLU)
+  warnings.warn("xFormers is available (SwiGLU)")
+/home/haksoo/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/block.py:33: UserWarning: xFormers is available (Block)
+  warnings.warn("xFormers is available (Block)")
+/home/haksoo/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/attention.py:27: UserWarning: xFormers is available (Attention)
+  warnings.warn("xFormers is available (Attention)")
+/home/haksoo/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/block.py:33: UserWarning: xFormers is available (Block)
+  warnings.warn("xFormers is available (Block)")
+/home/haksoo/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/swiglu_ffn.py:43: UserWarning: xFormers is available (SwiGLU)
+  warnings.warn("xFormers is available (SwiGLU)")
+/home/haksoo/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/attention.py:27: UserWarning: xFormers is available (Attention)
+  warnings.warn("xFormers is available (Attention)")
+/home/haksoo/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/block.py:33: UserWarning: xFormers is available (Block)
+  warnings.warn("xFormers is available (Block)")
+[[34m2026-02-12 15:50:44[0m] using MLP layer as FFN
+[[34m2026-02-12 15:50:46[0m] Attached REPA projector: student_dim=1152 -> teacher_dim=768
+[[34m2026-02-12 15:50:46[0m] Registered REPA forward hooks on student blocks.
+[[34m2026-02-12 15:50:46[0m] Transport: path_type=Linear, prediction=velocity, loss_weight=None, train_eps=0.0, sample_eps=0.0
+[[34m2026-02-12 15:50:46[0m] DiT Parameters: 31,757,218
