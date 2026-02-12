@@ -2,7 +2,7 @@ cd ~/DiT
 export PYTHONNOUSERSITE=1
 
 CUDA_VISIBLE_DEVICES=3,4,6,7 $CONDA_PREFIX/bin/python -m torch.distributed.run \
-  --nnodes=1 --nproc_per_node=4 --master_port 29501 train_repa_flash_sit.py \
+  --nnodes=1 --nproc_per_node=4 --master_port 29500 train_repa_flash_sit.py \
   --model DiT-XL/2 \
   --data-path /data/ImageNet1k/train \
   --global-batch-size 64 \

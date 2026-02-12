@@ -63,7 +63,7 @@ except Exception:
     pass
 
 # Model registry (flash variant):
-from model_dittrm_xprev import DiT_models  # type: ignore
+from model_dittrm_xprev_sitvel import DiT_models  # type: ignore
 
 # SiT transport:
 from transport import create_transport  # type: ignore
@@ -419,6 +419,8 @@ def main(args: argparse.Namespace) -> None:
         input_size=latent_size,
         num_classes=args.num_classes,
         self_refine_feedback="xprev",
+        prediction_type="velocity",
+        feedback_dt=0.001,    
     )
     # Only include if available (won't pass None):
     if args.shared_depth is not None:
